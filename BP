@@ -1,0 +1,112 @@
+Sub CreateDetailReport()
+
+    Dim wsRaw As Worksheet, wsDet As Worksheet
+    Dim data As Variant
+    Dim lastRow As Long, i As Long, r As Long
+    Dim dict As Object, dictInfo As Object
+    Dim ticketID As String, teamVal As String
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    Application.EnableEvents = False
+
+    ' ---- RAW Data ----
+    On Error Resume Next
+    Set wsRaw = ThisWorkbook.Sheets("RAW Data")
+    On Error GoTo 0
+    If wsRaw Is Nothing Then
+        MsgBox "ไม่พบ sheet 'RAW Data'", vbCritical
+        GoTo Cleanup
+    End If
+
+    lastRow = wsRaw.Cells(wsRaw.Rows.Count, 12).End(xlUp).Row
+    If lastRow < 2 Then
+        MsgBox "ไม่มีข้อมูล", vbInformation
+        GoTo Cleanup
+    End If
+
+    ' ---- อ่านข้อมูลทั้งหมดเข้า Array ครั้งเดียว (เร็วกว่า cell-by-cell มาก) ----
+    data = wsRaw.Range(wsRaw.Cells(2, 1), wsRaw.Cells(lastRow, 44)).Value
+
+    ' ---- สร้าง / เคลียร์ Detail_Report ----
+    On Error Resume Next
+    Set wsDet = ThisWorkbook.Sheets("Detail_Report")
+    On Error GoTo 0
+    If wsDet Is Nothing Then
+        Set wsDet = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsDet.Name = "Detail_Report"
+    Else
+        wsDet.Cells.Clear
+    End If
+
+    ' ---- Dictionary: ticketID -> teams ----
+    Set dict = CreateObject("Scripting.Dictionary")
+    Set dictInfo = CreateObject("Scripting.Dictionary")
+
+    For i = 1 To UBound(data, 1)
+        ticketID = Trim(CStr(data(i, 12)))   ' col L = Ticket ID
+        If ticketID = "" Then GoTo NextRow
+
+        teamVal = Trim(CStr(data(i, 11)))    ' col K = Team
+
+        If Not dict.Exists(ticketID) Then
+            dict.Add ticketID, teamVal
+            dictInfo.Add ticketID, i
+        Else
+            If InStr(1, dict(ticketID), teamVal, vbTextCompare) = 0 Then
+                dict(ticketID) = dict(ticketID) & ", " & teamVal
+            End If
+        End If
+NextRow:
+    Next i
+
+    ' ---- Header ----
+    Dim hdrs As Variant
+    hdrs = Array("Source Ticket ID", "Region", "Province", "Teams Involved", _
+                 "Severity Group", "Complete Solution")
+    Dim c As Integer
+    For c = 0 To UBound(hdrs)
+        With wsDet.Cells(1, c + 1)
+            .Value = hdrs(c)
+            .Font.Bold = True
+            .Font.Color = RGB(255, 255, 255)
+            .Interior.Color = RGB(0, 112, 192)
+            .HorizontalAlignment = xlCenter
+        End With
+    Next c
+
+    ' ---- เขียนเฉพาะ ticket ที่มีหลายทีม ----
+    r = 2
+    Dim key As Variant
+    Dim infoIdx As Long
+    For Each key In dict.Keys
+        If InStr(dict(key), ",") > 0 Then
+            infoIdx = dictInfo(key)
+            wsDet.Cells(r, 1).Value = key
+            wsDet.Cells(r, 2).Value = data(infoIdx, 8)    ' Region  col H
+            wsDet.Cells(r, 3).Value = data(infoIdx, 9)    ' Province col I
+            wsDet.Cells(r, 4).Value = dict(key)            ' Teams
+            wsDet.Cells(r, 5).Value = data(infoIdx, 4)    ' Severity col D
+            wsDet.Cells(r, 6).Value = data(infoIdx, 44)   ' Solution col AR
+            If r Mod 2 = 0 Then
+                wsDet.Range(wsDet.Cells(r, 1), wsDet.Cells(r, 6)) _
+                     .Interior.Color = RGB(217, 225, 242)
+            End If
+            r = r + 1
+        End If
+    Next key
+
+    ' ---- AutoFit ----
+    wsDet.Columns("A:E").AutoFit
+    wsDet.Columns("F").ColumnWidth = 50
+
+    MsgBox "เสร็จแล้ว! พบ " & (r - 2) & " tickets ที่มีหลายทีม" & vbLf & _
+           "ดูผลได้ที่ sheet 'Detail_Report'", vbInformation
+
+Cleanup:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+
+End Sub
+
